@@ -1,0 +1,872 @@
+---
+title: "BADDIE_ITS_Analysis"
+output: html_document
+date: "2024-08-14"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+dev.off()
+setwd("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE/Sequencing/ITS")
+```
+
+#Loading packages
+```{r}
+library("tidyverse")
+library("mctoolsr")
+library("knitr")
+library(ggplot2)
+library(emmeans)
+library(multcomp)
+```
+
+#Loading in files
+```{r}
+zotutab1 <- read_delim("feature_table_ITS_BADDIE.txt", delim = "\t")
+meta1 <- read_delim("Metadata.txt", delim = "\t")
+tax1 <- read_delim("taxonomy_table_ITS_BADDIE.txt", delim = "\t", col_names = FALSE)
+```
+
+#Editing taxonomy file
+```{r}
+tax1 = tax1[-1,-3]
+taxcut1 <- tax1 %>%
+  dplyr::rename("#OTU ID" = "X1", "taxonomy" = "X2")
+```
+
+#Remove rare taxa
+```{r}
+otutotals1 <- mutate(.data = zotutab1, otutotal = rowSums(zotutab1[,2:35]))
+otunotrare1 <- otutotals1 %>%
+  filter(otutotal > 20)
+#Filtered out 2499 taxa
+```
+
+# Removing host reads
+# Adding taxonomic info (not necessary for fungi)
+```{r}
+otutabtax1 <- inner_join(otunotrare1, taxcut1, by = "#OTU ID")
+
+otutabtax1$host <- 0
+
+otuhost1 <- otutabtax1 %>%
+  mutate(host = case_when(
+    grepl("Rickettsiales", taxonomy) ~ "remove",
+    grepl("Chloroplast", taxonomy) ~ "remove",
+    TRUE ~ "keep"))
+
+otufilt1 <- filter(.data = otuhost1, host == "keep")
+
+mcotu1 <- otufilt1 %>%
+  dplyr::select(-otutotal, -host)
+```
+
+#Writing files
+```{r}
+write_delim(mcotu1, file = "mcotu1.txt", delim = "\t")
+write_delim(meta1, file = "meta1.txt", delim = "\t")
+```
+
+#Loading into MCToolsR
+```{r}
+input <- load_taxa_table("mcotu1.txt", "meta1.txt")
+
+#Reads per sample
+sort(colSums(input$data_loaded))
+```
+
+#Rarefy data at 26,000 reads
+```{r}
+input_rar <- single_rarefy(input, 26000)
+sort(colSums(input_rar$data_loaded))
+input_rar$map_loaded
+```
+
+#Taxa barplots
+```{r}
+#Summarize taxonomy
+fun_taxa = summarize_taxonomy(input_rar, level=2)
+metaplot = as.data.frame(input_rar$map_loaded)
+#Create barplot
+fun_comp = plot_taxa_bars(
+  tax_table = fun_taxa,
+  metadata_map = metaplot,
+  type_header = 'Microsite',
+  num_taxa = 20,
+  data_only = TRUE
+)
+fun_comp
+```
+
+
+#Alpha diversity
+```{r}
+#By microsite
+plot_diversity(input_rar, "Microsite", metric = "richness")
+plot_diversity(input_rar, "Microsite", metric = "shannon")
+plot_diversity(input_rar, "Microsite", metric = "simpson")
+```
+
+#Shannon diversity models
+```{r}
+library(car)
+sub <- input_rar
+# calculate shannon index
+shan <- vegan::diversity(t(sub$data_loaded), index = "shannon")
+# make data frame with metadata and shannon index
+shan <- shan[match(names(shan), row.names(sub$map_loaded))]
+shan_df <- cbind(sub$map_loaded, shan)
+# Microsite GLM
+shan_Microsite_glm <- glm(shan ~ Microsite, 
+                       data = shan_df)
+shan_Microsite_anova <- car::Anova(shan_Microsite_glm, test.statistic = "F")
+#Looking at Shannon differences by microsite
+Shan_lm_means = emmeans(object = shan_Microsite_glm,
+                       specs = ~ Microsite) 
+Shan_lm_means_cld <- cld(object = Shan_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCaa = 0.05)
+Shan_lm_means_cld
+
+#Tukey HSD testing
+library(agricolae)
+hsd_Microsite <- HSD.test(aov(shan ~ Microsite, data = shan_df), "Microsite", group = T)
+hsd_Microsite
+
+#Richness
+head(sub$data_loaded)
+rich=vegan::specnumber(sub$data_loaded,MARGIN=2)
+# make data frame with metadata and shannon index
+rich <- rich[match(names(rich), row.names(sub$map_loaded))]
+rich_df <- cbind(sub$map_loaded, rich)
+#Microsite
+rich_glm <- glm(rich ~ Microsite, 
+                       data = rich_df)
+rich_anova <- car::Anova(rich_glm, test.statistic = "F")
+#Looking at richness differences by microsite
+Rich_lm_means = emmeans(object = rich_glm,
+                       specs = ~ Microsite) 
+Rich_lm_means_cld <- cld(object = Rich_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCaa = 0.05)
+Rich_lm_means_cld
+```
+
+# Making alpha diversity figures
+```{r}
+##Richness
+#Change microsite names in df
+library(dplyr)
+RichMeans <- rich_df %>%
+    mutate(Microsite = dplyr::recode(Microsite, CTRL = 'Control', U = 'Beneath', W =  'West', E = 'East', BW = "Between" ))
+
+#Richness by microsite
+RichMeans = RichMeans %>%
+   mutate(Microsite = fct_relevel(Microsite, 
+            "Control", "Between", "West", 
+            "Beneath", "East"))
+
+RichPlot =
+  ggplot(RichMeans, aes(x = Microsite, y = rich, fill=Microsite)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("lightcyan2",  "grey69", "indianred4", "aquamarine3", "cornflowerblue")) +
+  labs(
+    title = "ITS OTU Richness",
+    y = "OTU Count"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "black", size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(face = "bold.italic", hjust = 0.5),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(size = 17)) +
+  theme(legend.position="none")
+RichPlot
+
+##Shannon
+ShanMeans <- shan_df %>%
+    mutate(Microsite = dplyr::recode(Microsite, CTRL = 'Control', U = 'Beneath', W =  'West', E = 'East', BW = "Between" ))
+#Shannon by microsite
+ShanMeans = ShanMeans %>%
+   mutate(Microsite = fct_relevel(Microsite, 
+            "Control", "Between", "West", 
+            "Beneath", "East"))
+#Plotting
+ShanPlot =
+  ggplot(ShanMeans, aes(x = Microsite, y = shan, fill=Microsite)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("lightcyan2",  "grey69", "indianred4", "aquamarine3", "cornflowerblue")) +
+  labs(
+    title = "ITS OTU Shannon Diversity",
+    y = "Shannon Diversity Index"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(color = "black", size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(face = "bold.italic", hjust = 0.5),
+    plot.caption = element_text(face = "italic"),
+    axis.text.x = element_text(size = 17)
+  ) +
+  theme(legend.position="none")
+ShanPlot
+```
+
+#Beta diversity (unrarefied)
+```{r}
+dm <- calc_dm(input$data_loaded)
+ord <- calc_ordination(dm, 'NMDS')
+plot_ordination(input, ord, 'Microsite', hulls = TRUE)
+
+ord1 <- calc_ordination(dm, 'pcoa')
+plot_ordination(input, ord1, 'Microsite', hulls = TRUE)
+```
+
+#PerMANOVA (Bray-Curtis)
+```{r}
+library(vegan)
+oITS <- input
+# build data table to perform PERMANOVA on
+x <- cbind(oITS$map_loaded, t(oITS$data_loaded))
+head(x)
+# create and run PERMANOVA model (by Microsite)
+permanova_microsite <- adonis2(x[,6:ncol(x)] ~ Microsite,
+                       data = x)
+permanova_microsite
+```
+
+#PerMANOVA (Robust Aitchison)
+```{r}
+# create and run PERMANOVA model (by Microsite)
+permanova_microsite <- adonis2(x[,6:ncol(x)] ~ Microsite, method="robust.aitchison", data = x)
+permanova_microsite
+```
+
+#Pairwise Adonis
+```{r}
+library(pairwiseAdonis)
+#By microsite
+otuTAB<-input$data_loaded
+otuTAB <- as.data.frame (otuTAB)
+otuTABtranspose<-t(otuTAB)
+mta<-input$map_loaded
+mta$Microsite <- as.factor(mta$Microsite)
+#Check differences between fdr and bonferroni
+pair.mod<-pairwise.adonis(t(otuTAB),factors=mta$Microsite, p.adjust.m="fdr")
+pair.mod
+```
+
+#CAPs by microsite
+```{r}
+library(vegan)
+library(BiodiversityR)
+library(htmltools)
+otuTAB<-input$data_loaded
+
+otuTAB <- as.data.frame (otuTAB)
+otuTABtranspose<-t(otuTAB)
+mta<-input$map_loaded
+mta$Microsite <- as.factor (mta$Microsite)
+mta <- mta %>%
+    mutate(Microsite = dplyr::recode(Microsite, CTRL = 'Control', U = 'Beneath', W =  'West', E = 'East', BW = "Between" ))
+
+o.dist <-vegdist (otuTABtranspose)
+Ordination.model1 <- CAPdiscrim (o.dist ~ Microsite, data = mta,
+                                 dist="bray", axes=2, m=0, add=FALSE)
+
+plot.new()
+plot1<-ordiplot(Ordination.model1,type="none")
+plot1
+ordisymbol(plot1, mta, "Microsite", legend=TRUE,legend.x="topright")
+ordiellipse(Ordination.model1, groups = mta$Microsite, draw = "polygon",col=c("grey69","lightcyan2","cornflowerblue","aquamarine3","indianred4"))
+# Collect point locations and save as a new object
+sites.long1 <- sites.long(plot1, env.data = mta)
+# Collect ellipse data and save as a new object
+ellipses <- ordiellipse(plot1, groups = mta$Microsite, display = "sites", kind = "sd")
+ellipses.long1 <- ordiellipse.long(ellipses, grouping.name = "Microsite")
+# Make CAPs Diagram in ggplot2. Here is a basic one:
+ggplot(data = sites.long1, aes(axis1, axis2, color = Microsite)) + 
+  geom_point() + geom_polygon(data = ellipses.long1, 
+                              aes(x = axis1, y = axis2, colour = Microsite, fill = after_scale(alpha(colour, 0.2))), size = 0.2, show.legend = FALSE)
+# More detailed CAPs diagram
+cap <- ggplot(data = sites.long1, aes(axis1, axis2, color = Microsite, 
+                               shape = Microsite)) + 
+  geom_point() + 
+  geom_polygon(data = ellipses.long1, 
+               aes(x = axis1, y = axis2, color = Microsite, 
+                   fill = after_scale(alpha(color, 0.2))), 
+               size = 0.5, show.legend = FALSE) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5, size = 0.3) + # line at 0
+  ggtitle("ITS - CAPs") + # title
+  xlab("LD1") + ylab("LD2") #axis name based on CAPs format
+cap + scale_fill_manual(values=c("grey69","lightcyan2","cornflowerblue","aquamarine3","indianred4")) + scale_color_manual(values=c("grey69","lightcyan2","cornflowerblue","aquamarine3","indianred4")) +
+  theme(legend.key.size = unit(1, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.title = element_text(size=14), #change legend title font size
+        legend.text = element_text(size=14),
+        plot.title = element_text(size=22)) #change legend text font size
+```
+
+#Taxa heat maps
+```{r}
+#Phylum
+tax_sum_2 <- summarize_taxonomy(input, level = 2, report_higher_tax = FALSE)
+#Class
+tax_sum_3 <- summarize_taxonomy(input, level = 3, report_higher_tax = FALSE)
+#Order
+tax_sum_4 <- summarize_taxonomy(input, level = 4, report_higher_tax = FALSE)
+#Family
+tax_sum_5 <- summarize_taxonomy(input, level = 5, report_higher_tax = FALSE)
+
+#By microsite by phylum
+plot_ts_heatmap(tax_sum_4, input$map_loaded, 0.01, 'Microsite')
+```
+
+#Differential abundance DeSEQ
+```{r}
+# load packages
+library(DESeq2)
+# get tables
+tax <- input$taxonomy_loaded
+mta <- input$map_loaded
+tab <- input$data_loaded
+# transform otu table (might be necessary but try skipping)
+tab1 <- tab + 1
+# calculation
+voldat <- DESeqDataSetFromMatrix(countData = tab1, colData = mta, design= ~Panels)
+voldat2 <- DESeq(voldat, fitType = 'mean', minReplicatesForReplace = 7, parallel = FALSE)
+# results
+volres <- results(voldat2, contrast = c('Microsite', 'CTRL', 'W')) # first factor = up, second factor = down
+volres2 <- data.frame(volres, stringsAsFactors = FALSE, check.names = FALSE)
+volres3 <- volres2[order(volres2$padj, volres2$log2FoldChange, decreasing = c(FALSE, TRUE)), ]
+# create new column to label up and down based on the order of factors in #results
+volres3[which(volres3$log2FoldChange >= 1 & volres3$padj < 0.01),'sig'] <- 'up'
+volres3[which(volres3$log2FoldChange <= -1 & volres3$padj < 0.01),'sig'] <- 'down'
+volres3[which(abs(volres3$log2FoldChange) <= 1 | volres3$padj >= 0.01),'sig'] <- 'none'
+volres3$adjustp <-  -log10(volres3$padj)
+# add taxonomy information
+volrestax <- merge(volres3, tax, by = 'row.names')
+# take out the non-significant taxa if you want to (easier to read the plot)
+volrestax1 <- volrestax %>%
+  mutate(taxonomy1 = ifelse(sig == "none", "no_change", taxonomy1)) %>%
+  mutate(taxonomy2 = ifelse(sig == "none", "no_change", taxonomy2)) %>%
+  mutate(taxonomy3 = ifelse(sig == "none", "no_change", taxonomy3)) %>%
+  mutate(taxonomy4 = ifelse(sig == "none", "no_change", taxonomy4)) %>%
+  mutate(taxonomy5 = ifelse(sig == "none", "no_change", taxonomy5)) %>%
+  mutate(taxonomy6 = ifelse(sig == "none", "no_change", taxonomy6)) %>%
+  mutate(taxonomy7 = ifelse(sig == "none", "no_change", taxonomy7))
+# if you want to plot without labeling the non-significant taxa
+volrestax <- volrestax1
+write.csv(volrestax, "Phylum_LFC.csv")
+```
+
+#Taxa-based analyses
+```{r}
+tax_sum_families = summarize_taxonomy(input, level = 3, report_higher_tax = FALSE)
+taxa_by_fam = taxa_summary_by_sample_type(tax_sum_families, input$map_loaded, type_header = 'Microsite', filter_level = 0.05, test_type = 'KW')
+
+#Calculating overall relative abundances
+taxa_by_fam = taxa_summary_by_sample_type(tax_sum_families, input$map_loaded, type_header = 'Sample', filter_level = 0.05, test_type = 'KW')
+taxa_by_fam$RA <- rowMeans(taxa_by_fam[ , c(4,37)], na.rm=TRUE)
+```
+
+#Dominant taxa
+```{r}
+library(tidyverse)
+#Using unrarefied dataframes, take top 10% of taxa by relative abundance
+#Calculate row abundances for bulk soil control sample
+features = as.data.frame(input$data_loaded)
+tax = as.data.frame(input$taxonomy_loaded)
+sums = merge(features, tax, by="row.names") %>%
+  mutate(otutotal = rowSums(sums[,2:35])) %>%
+  arrange(desc(otutotal))
+#Separate top 10% of taxa by RA 
+dominant_taxa = sums[1:276,]
+
+#There are 1292667 total reads of ITS samples
+total_reads = as.data.frame(sums[,44])
+colnames(total_reads)[1] <- "sums"
+sum(total_reads$sums)
+
+#Top 10% of taxa account for 993324 total reads
+dominant_reads = as.data.frame(dominant_taxa[,44])
+colnames(dominant_reads)[1] <- "sums"
+sum(dominant_reads$sums)
+```
+
+#Switching to phyloseq to do more exploratory taxa analyses
+```{r}
+#Switching to phyloseq approach for ease of working with dataset
+library("phyloseq")
+library("ggplot2")    
+library("readxl")     
+library("dplyr")        
+library("tibble")
+library(eulerr)
+library(microbiome)
+library(microbiomeutilities)
+library(microViz)
+
+#Reading in tables
+otu_mat<- read_excel("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE/Sequencing/ITS/feature_table_ITS_BADDIE.xlsx")
+colnames(otu_mat)[1] <- "otu"
+tax_mat<- read_excel("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE/Sequencing/ITS/taxonomy_table_ITS_BADDIE_MA.xlsx")
+colnames(tax_mat)[1] <- "otu"
+samples_df <- read_delim("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE/Sequencing/16S/Metadata2.txt", delim = "\t")
+colnames(samples_df)[2] <- "sample"
+samples_df <- samples_df %>%
+    mutate(Microsite = dplyr::recode(Microsite, CTRL = 'Control', U = 'Beneath', W =  'West', E = 'East', BW = "Between" ))
+
+
+#Define row names from otu column
+otu_mat <- otu_mat %>%
+  tibble::column_to_rownames("otu")
+tax_mat <- tax_mat %>% 
+    tibble::column_to_rownames("otu")
+samples_df <- samples_df %>% 
+    tibble::column_to_rownames("sample") 
+
+#Transform to matrices
+otu_mat <- as.matrix(otu_mat)
+tax_mat <- as.matrix(tax_mat)
+
+#Make phyloseq object
+OTU = otu_table(otu_mat, taxa_are_rows = TRUE)
+TAX = tax_table(tax_mat)
+samples = sample_data(samples_df)
+  
+baddie <- phyloseq(OTU, TAX, samples)
+baddie
+baddie_meta=meta(baddie)
+baddie_filt <- tax_filter(baddie, min_total_abundance = 20)
+```
+
+#Looking at shared taxa across bulk & rhizo compartments (all sites- controls)
+```{r}
+#Initial sample count in each group
+table(meta(baddie)$Microsite)
+
+#Convert to relative abundances
+baddie.rel <- microbiome::transform(baddie, "compositional")
+sample_types <- unique(as.character(meta(baddie.rel)$Microsite))
+print(sample_types)
+
+# Loop to go through sample types and combine identified core taxa into list
+list_core <- c() # an empty object to store information
+
+for (n in sample_types){ # for each variable n in Sample.Type
+    #print(paste0("Identifying Core Taxa for ", n))
+    
+    ps.sub <- subset_samples(baddie.rel, Microsite == n) # Choose sample from Microsite by n
+    
+    core_m <- core_members(ps.sub, # ps.sub is phyloseq selected with only samples from g 
+                           detection = 0.001, # 0.001 in atleast 10% samples 
+                           prevalence = 0.10)
+    print(paste0("No. of core taxa in ", n, " : ", length(core_m))) # print core taxa identified in each SampleType.
+    list_core[[n]] <- core_m # add to a list core taxa for each group.
+    #print(list_core)
+}
+
+print(list_core)
+
+#Make quick venn diagram
+mycols <- c(CTRL="#d6e2e9", BW="#cbf3f0", E="#f5f5dc", W="#40e0d0", U="#cbf3d8") 
+plot(venn(list_core),
+     fills = mycols)
+
+#Formatting taxa names prior to combining to OTU IDs
+rank_names(baddie.rel)
+pseq.rel.f <- format_to_besthit(baddie.rel)
+# Loop to combine taxanomic info to OTU IDs in core taxa
+list_core <- c() # an empty object to store information
+
+for (n in sample_types){ # for each variable n in Sample.Type
+    #print(paste0("Identifying Core Taxa for ", n))
+    
+    ps.sub <- subset_samples(pseq.rel.f, Sample.Type == n) # Choose sample from DiseaseState by n
+    
+    core_m <- core_members(ps.sub, # ps.sub is phyloseq selected with only samples from g 
+                           detection = 0.001, # 0.001 in atleast 40% samples 
+                           prevalence = 0.40)
+    print(paste0("No. of core taxa in ", n, " : ", length(core_m))) # print core taxa identified in each Sample.Type.
+    list_core[[n]] <- core_m # add to a list core taxa for each group.
+    #print(list_core)
+}
+print(list_core)
+```
+
+#Copying for filtered dataset
+```{r}
+#Initial sample count in each group
+table(meta(baddie_filt)$Microsite)
+
+#Convert to relative abundances
+baddie_filt.rel <- microbiome::transform(baddie_filt, "compositional")
+sample_types <- unique(as.character(meta(baddie_filt.rel)$Microsite))
+print(sample_types)
+
+# Loop to go through sample types and combine identified core taxa into list
+list_core <- c() # an empty object to store information
+
+for (n in sample_types){ # for each variable n in Sample.Type
+    #print(paste0("Identifying Core Taxa for ", n))
+    
+    ps.sub <- subset_samples(baddie_filt.rel, Microsite == n) # Choose sample from Microsite by n
+    
+    core_m <- core_members(ps.sub, # ps.sub is phyloseq selected with only samples from g 
+                           detection = 0.001, # 0.001 in atleast 10% samples 
+                           prevalence = 0.10)
+    print(paste0("No. of core taxa in ", n, " : ", length(core_m))) # print core taxa identified in each SampleType.
+    list_core[[n]] <- core_m # add to a list core taxa for each group.
+    #print(list_core)
+}
+
+print(list_core)
+
+#Make quick venn diagram
+mycols <- c(CTRL="#d6e2e9", BW="#cbf3f0", E="#f5f5dc", W="#40e0d0", U="#cbf3d8") 
+plot(venn(list_core),
+     fills = mycols)
+
+#Formatting taxa names prior to combining to OTU IDs
+rank_names(baddie_filt.rel)
+pseq.rel.f <- format_to_besthit(baddie_filt.rel)
+# Loop to combine taxanomic info to OTU IDs in core taxa
+list_core <- c() # an empty object to store information
+
+for (n in sample_types){ # for each variable n in Sample.Type
+    #print(paste0("Identifying Core Taxa for ", n))
+    
+    ps.sub <- subset_samples(pseq.rel.f, Sample.Type == n) # Choose sample from DiseaseState by n
+    
+    core_m <- core_members(ps.sub, # ps.sub is phyloseq selected with only samples from g 
+                           detection = 0.001, # 0.001 in atleast 40% samples 
+                           prevalence = 0.40)
+    print(paste0("No. of core taxa in ", n, " : ", length(core_m))) # print core taxa identified in each Sample.Type.
+    list_core[[n]] <- core_m # add to a list core taxa for each group.
+    #print(list_core)
+}
+print(list_core)
+```
+
+
+#ANCOM between E & W (Order)
+```{r}
+library(ANCOMBC)
+library(dplyr)
+library(tidyverse)
+library(vegan)
+library(car)
+library(magrittr)
+library(ecodist)
+library(phyloseq)
+library(readxl)
+library(DT)
+#Reordering to make control the reference group
+sample_data(baddie_filt)$Microsite = factor(sample_data(baddie_filt)$Microsite, levels = c("East", "West","Control", "Between", "Beneath"))
+#ANCOM
+ANCOM_all_micro = ancombc(data = baddie_filt, assay_name = "counts", 
+              phyloseq = NULL, tax_level = "Genus",
+              formula = "Microsite", 
+              group="Microsite", p_adj_method = "holm", prv_cut = 0.10, lib_cut = 1000, 
+              struc_zero = TRUE, neg_lb = TRUE, tol = 1e-5, 
+              max_iter = 100, conserve = TRUE, alpha = 0.05, global = TRUE,
+              n_cl = 1, verbose = TRUE)
+
+#Making p-value table
+res = ANCOM_all_micro$res
+tab_p = res$p_val
+col_name = c("Taxon", "Intercept", "East-West", "East-Control", "East-Between", "East-Beneath")
+colnames(tab_p) = col_name
+tab_p %>% 
+  datatable(caption = "P-values from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+
+#Making differentially abundant T-F table
+tab_diff = res$diff_abn
+colnames(tab_diff) = col_name
+tab_diff %>% 
+  datatable(caption = "Differentially Abundant Taxa from the Primary Result")
+
+#Creating p-value df
+p_thresh=0.05
+ANCOM_all_micro_sig= 
+  ANCOM_all_micro$res$p_val %>% 
+  as.data.frame %>% 
+  filter(MicrositeWest<p_thresh) %$%
+  taxon
+
+#Creating lfc df
+ANCOM_all_micro_results=
+  ANCOM_all_micro$res$lfc %>% 
+  as.data.frame %>% 
+  filter(taxon %in% ANCOM_all_micro_sig) %>%
+  rename("LFC"="MicrositeWest") %>%
+  mutate(Enrichment=ifelse(LFC<0, "East Enriched", "West Enriched"))
+
+#Creating figure
+ANCOM_all_micro_results %>%
+  arrange(LFC) %>%
+  slice(c(1:10, (n() - 9):n())) %>%
+  arrange(desc(LFC)) %>%
+  ggplot(aes(x=reorder(taxon, LFC), y=LFC, fill=Enrichment)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("cornflowerblue","indianred4"))+
+  theme_minimal() +
+  ggtitle("East vs. West Edge - Enriched Fungal Taxa") +
+  geom_hline(yintercept=0) +
+  theme(plot.title = element_text(hjust = 0.5, size = 25)) +
+  theme(legend.key.size = unit(1.5, 'cm'), #change legend key size
+        legend.title = element_text(size=12), #change legend title font size
+        legend.text = element_text(size=10)) #change legend text font size
+```
+
+#ANCOM between E & W (genus level)
+```{r}
+#Reordering to make control the reference froup
+sample_data(baddie_filt)$Microsite = factor(sample_data(baddie_filt)$Microsite, levels = c("East", "West","Control", "Between", "Beneath"))
+#ANCOM
+ANCOM_all_micro = ancombc(data = baddie_filt, assay_name = "counts", 
+              phyloseq = NULL, tax_level = "Genus",
+              formula = "Microsite", 
+              group="Microsite", p_adj_method = "holm", prv_cut = 0.10, lib_cut = 1000, 
+              struc_zero = TRUE, neg_lb = TRUE, tol = 1e-5, 
+              max_iter = 100, conserve = TRUE, alpha = 0.05, global = TRUE,
+              n_cl = 1, verbose = TRUE)
+
+#Making p-value table
+res = ANCOM_all_micro$res
+tab_p = res$p_val
+col_name = c("Taxon", "Intercept", "East-West", "East-Control", "East-Between", "East-Beneath")
+colnames(tab_p) = col_name
+tab_p %>% 
+  datatable(caption = "P-values from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+
+#Making differentially abundant T-F table
+tab_diff = res$diff_abn
+colnames(tab_diff) = col_name
+tab_diff %>% 
+  datatable(caption = "Differentially Abundant Taxa from the Primary Result")
+
+#Creating p-value df
+p_thresh=0.05
+ANCOM_all_micro_sig= 
+  ANCOM_all_micro$res$p_val %>% 
+  as.data.frame %>% 
+  filter(MicrositeWest<p_thresh) %$%
+  taxon
+
+#Creating lfc df
+ANCOM_all_micro_results=
+  ANCOM_all_micro$res$lfc %>% 
+  as.data.frame %>% 
+  filter(taxon %in% ANCOM_all_micro_sig) %>%
+  rename("LFC"="MicrositeWest") %>%
+  mutate(Enrichment=ifelse(LFC<0, "East Enriched", "West Enriched"))
+
+#Creating figure
+ANCOM_all_micro_results %>%
+  arrange(LFC) %>%
+  slice(c(1:20, (n() - 19):n())) %>%
+  arrange(desc(LFC)) %>%
+  ggplot(aes(x=reorder(taxon, LFC), y=LFC, fill=Enrichment)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("cornflowerblue","indianred4"))+
+  theme_minimal() +
+  ggtitle("East vs. West Edge - Enriched ITS Taxa") +
+  geom_hline(yintercept=0) +
+  theme(plot.title = element_text(hjust = 0.5, size = 25)) +
+  theme(legend.key.size = unit(1.5, 'cm'), #change legend key size
+        legend.title = element_text(size=12), #change legend title font size
+        legend.text = element_text(size=10)) #change legend text font size
+```
+
+#ANCOM bw Control & Beneath
+```{r}
+#Reordering to make control the reference group
+sample_data(baddie_filt)$Microsite = factor(sample_data(baddie_filt)$Microsite, levels = c("Beneath", "Control", "Between", "East", "West"))
+#ANCOM
+ANCOM_all_micro = ancombc(data = baddie_filt, assay_name = "counts", 
+              phyloseq = NULL, tax_level = "Order",
+              formula = "Microsite", 
+              group="Microsite", p_adj_method = "holm", prv_cut = 0.10, lib_cut = 1000, 
+              struc_zero = TRUE, neg_lb = TRUE, tol = 1e-5, 
+              max_iter = 100, conserve = TRUE, alpha = 0.05, global = TRUE,
+              n_cl = 1, verbose = TRUE)
+
+#Making p-value table
+res = ANCOM_all_micro$res
+tab_p = res$p_val
+col_name = c("Taxon", "Intercept", "Beneath-Control", "Beneath-Between", "Beneath-East", "Beneath-West")
+colnames(tab_p) = col_name
+tab_p %>% 
+  datatable(caption = "P-values from the Primary Result") %>%
+  formatRound(col_name[-1], digits = 2)
+
+#Making differentially abundant T-F table
+tab_diff = res$diff_abn
+colnames(tab_diff) = col_name
+tab_diff %>% 
+  datatable(caption = "Differentially Abundant Taxa from the Primary Result")
+
+#Creating p-value df
+p_thresh=0.05
+ANCOM_all_micro_sig= 
+  ANCOM_all_micro$res$p_val %>% 
+  as.data.frame %>% 
+  filter(MicrositeWest<p_thresh) %$%
+  taxon
+
+#Creating lfc df
+ANCOM_all_micro_results=
+  ANCOM_all_micro$res$lfc %>% 
+  as.data.frame %>% 
+  filter(taxon %in% ANCOM_all_micro_sig) %>%
+  rename("LFC"="MicrositeControl") %>%
+  mutate(Enrichment=ifelse(LFC<0, "Beneath Enriched", "Control Enriched"))
+
+#Creating figure
+ANCOM_all_micro_results %>%
+  arrange(LFC) %>%
+  slice(c(1:10, (n() - 9):n())) %>%
+  arrange(desc(LFC)) %>%
+  ggplot(aes(x=reorder(taxon, LFC), y=LFC, fill=Enrichment)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("aquamarine3","lightcyan2"))+
+  theme_minimal() +
+  ggtitle("Beneath vs. Control - Enriched Fungal Taxa") +
+  geom_hline(yintercept=0) +
+  theme(plot.title = element_text(hjust = 0.5, size = 25)) +
+  theme(legend.key.size = unit(1.5, 'cm'), #change legend key size
+        legend.title = element_text(size=12), #change legend title font size
+        legend.text = element_text(size=10)) #change legend text font size
+```
+
+
+#Abundant taxa across all samples
+```{r}
+#use baddie_filt phyloseq object
+
+#Calculate relative abundances for each sample
+relabun<-transform_sample_counts(baddie_filt,function(x) x / sum(x))
+
+#Combining all taxa within a phylum
+glom <- tax_glom(relabun, taxrank = 'Phylum')
+
+#Make into dataframe
+ps.df <- psmelt(glom)
+
+names(ps.df)  # to choose factors you want to use to navigate
+
+#Grouping phylum relative abundances by site and treatment
+MySummary_Microsite <- ps.df %>%
+  group_by(Microsite) %>%
+  summarize(mean_abund = mean(Abundance, na.rm=TRUE)) 
+
+
+#Not grouping, just looking at phyla abundances across all sample
+MySummary <- ps.df %>%
+  group_by(Phylum) %>%
+  summarize(mean_abund = mean(Abundance, na.rm=TRUE)) 
+head(MySummary)
+
+#Make plot of taxa relative abundances across all samples
+ggplot(MySummary, aes(x="", y=mean_abund, fill=Phylum)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) +
+  theme_void() +
+  theme(legend.title=element_blank(), legend.position="bottom", legend.text = element_text(size = 8))
+```
+
+#Calculating phyla relative abundance for each sample
+```{r}
+MySummary_Sample <- ps.df %>%
+  group_by(sample_Sample, Phylum) %>%
+  summarize(mean_abund = mean(Abundance, na.rm=TRUE)) 
+
+```
+
+#Spearman rank correlation of abiotic factors & alpha diversity
+```{r}
+library(dplyr)
+library(corrplot)
+#Read in master dataframe
+MasterFungi = read_excel("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE/Data/Soil_Master_Fungi.xlsx")
+
+#Changing columns to numeric
+MasterFungi[,3:22] <- sapply(MasterFungi[,3:22],as.numeric)
+#Removing 16S columns
+MasterFungi = MasterFungi[,-c(14:15)]
+
+#Run correlations
+print(cor(MasterFungi[, c(3:20)]))
+
+#Calculate Spearman correlation coefficients
+cor_matrix <- cor(MasterFungi[, c(3:20)], method = "spearman")
+ 
+# Create a correlation heatmap
+corrplot(
+  cor_matrix,
+  method = "color",
+  type = "upper",
+  tl.cex = 0.8,
+  tl.col = "black",
+  tl.srt = 45,
+  addCoef.col = "black",
+  title = "Spearman Correlation Heatmap"
+)
+
+#Load heatmaply
+library(heatmaply)
+ 
+# plotting corr heatmap
+heatmaply_cor(x = cor(MasterFungi[, c(3:20)]), xlab = "", 
+              ylab = "", k_col = 2, k_row = 2)
+```
+
+#Attempt dbRDA with updated soil master sheet
+```{r}
+#read in data to incorporate metadata with soil properties
+zotutab1 <- read_delim("feature_table_ITS_BADDIE.txt", delim = "\t")
+meta1 <- read_excel("Soil_Master_Fungi.xlsx")
+tax1 <- read_delim("taxonomy_table_ITS_BADDIE.txt", delim = "\t", col_names = FALSE)
+tax1 = tax1[-1,-3]
+taxcut1 <- tax1 %>%
+  dplyr::rename("#OTU ID" = "X1", "taxonomy" = "X2")
+otutotals1 <- mutate(.data = zotutab1, otutotal = rowSums(zotutab1[,2:35]))
+otunotrare1 <- otutotals1 %>%
+  filter(otutotal > 20)
+otutabtax1 <- inner_join(otunotrare1, taxcut1, by = "#OTU ID")
+otutabtax1$host <- 0
+otuhost1 <- otutabtax1 %>%
+  mutate(host = case_when(
+    grepl("Rickettsiales", taxonomy) ~ "remove",
+    grepl("Chloroplast", taxonomy) ~ "remove",
+    TRUE ~ "keep"))
+otufilt1 <- filter(.data = otuhost1, host == "keep")
+mcotu1 <- otufilt1 %>%
+  dplyr::select(-otutotal, -host)
+write_delim(mcotu1, file = "mcotu1.txt", delim = "\t")
+write_delim(meta1, file = "meta1.txt", delim = "\t")
+input <- load_taxa_table("mcotu1.txt", "meta1.txt")
+
+
+#Begin dbRDA
+x = t(as.data.frame(input$data_loaded))
+x_meta = as.data.frame(input$map_loaded)
+fungi_dbrda = vegan::dbrda(x~ pH + EC + OM + TC + TN + BulkDensity + ANPP + MBC + MBN, data=x_meta, distance="bray")
+print(fungi_dbrda)
+summary(fungi_dbrda)
+plot(fungi_dbrda)
+```
+

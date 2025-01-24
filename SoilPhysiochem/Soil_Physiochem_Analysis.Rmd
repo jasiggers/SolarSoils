@@ -1,0 +1,470 @@
+---
+title: "BADDIE_SoilPhysiochem_Analysis"
+output: html_document
+date: "2024-08-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries
+```{r}
+library(tidyverse)
+library(broom)
+library(car)
+library(ggplot2)
+library(ggpubr)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+```
+
+#Read data
+```{r}
+setwd("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE")
+Soil=read.csv("Data/Soil_Physiochem_Master.csv")
+Soil=Soil[-24,]
+```
+
+#Quick comparisons by Microsite
+```{r}
+#pH
+#Microsite
+pH_lm = lm(pH~Microsite, data=Soil)
+anova(pH_lm)
+pH_lm_means = emmeans(object = pH_lm,
+                       specs = ~ Microsite) 
+pH_lm_means_cld <- cld(object = pH_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alpha = 0.05)
+pH_lm_means_cld
+#E=a, U=ab, BW=ab, W=ab, CTRL=b
+
+#EC
+mean(Soil$EC)
+#Microsite
+EC_lm = lm(EC~Microsite, data=Soil)
+anova(EC_lm)
+EC_lm_means = emmeans(object = EC_lm,
+                       specs = ~ Microsite) 
+EC_lm_means_cld <- cld(object = EC_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alECa = 0.05)
+EC_lm_means_cld
+#No differences (although control is slightly higher)
+
+#OM
+#Microsite
+OM_lm = lm(OM~Microsite, data=Soil)
+anova(OM_lm)
+OM_lm_means = emmeans(object = OM_lm,
+                       specs = ~ Microsite) 
+OM_lm_means_cld <- cld(object = OM_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alOMa = 0.05)
+OM_lm_means_cld
+#BW=a, CTRL=ab, W=ab, U=ab, E=b
+
+#TC
+mean(Soil$TC)
+#Microsite
+TC_lm = lm(TC~Microsite, data=Soil)
+anova(TC_lm)
+TC_lm_means = emmeans(object = TC_lm,
+                       specs = ~ Microsite) 
+TC_lm_means_cld <- cld(object = TC_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alTCa = 0.05)
+TC_lm_means_cld
+#No differences (highest under panels)
+
+#TN
+mean(Soil$TN)
+#Microsite
+TN_lm = lm(TN~Microsite, data=Soil)
+anova(TN_lm)
+TN_lm_means = emmeans(object = TN_lm,
+                       specs = ~ Microsite) 
+TN_lm_means_cld <- cld(object = TN_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alTNa = 0.05)
+TN_lm_means_cld
+#No differences (also highest under panels)
+```
+
+#Early season nutrients
+```{r}
+Nuts = read.csv("/Users/alex/Documents/Documents - Alex’s MacBook Pro/Documents/My Projects/BADDIE/Data/NutrientProbes_Rform.csv")
+
+#Subset early season
+JuneNuts = subset(Nuts, Month=='JUNE')
+#Filter out single control value
+JuneNuts = filter(JuneNuts, Microsite %in% c("E","W","U"))
+
+#ANOVAs
+
+#Nitrogen
+mean(JuneNuts$Total_N)
+#Microsite
+Total_N_lm = lm(Total_N~Microsite, data=JuneNuts)
+anova(Total_N_lm)
+Total_N_lm_means = emmeans(object = Total_N_lm,
+                       specs = ~ Microsite) 
+Total_N_lm_means_cld <- cld(object = Total_N_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alTotal_Na = 0.05)
+Total_N_lm_means_cld
+
+#Ca
+mean(JuneNuts$Ca)
+#Microsite
+Ca_lm = lm(Ca~Microsite, data=JuneNuts)
+anova(Ca_lm)
+Ca_lm_means = emmeans(object = Ca_lm,
+                       specs = ~ Microsite) 
+Ca_lm_means_cld <- cld(object = Ca_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCaa = 0.05)
+Ca_lm_means_cld
+
+#Mg
+mean(JuneNuts$Mg)
+#Microsite
+Mg_lm = lm(Mg~Microsite, data=JuneNuts)
+anova(Mg_lm)
+Mg_lm_means = emmeans(object = Mg_lm,
+                       specs = ~ Microsite) 
+Mg_lm_means_cld <- cld(object = Mg_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alMga = 0.05)
+Mg_lm_means_cld
+
+#K
+mean(JuneNuts$K)
+#Microsite
+K_lm = lm(K~Microsite, data=JuneNuts)
+anova(K_lm)
+K_lm_means = emmeans(object = K_lm,
+                       specs = ~ Microsite) 
+K_lm_means_cld <- cld(object = K_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alKa = 0.05)
+K_lm_means_cld
+
+#P
+mean(JuneNuts$P)
+#Microsite
+P_lm = lm(P~Microsite, data=JuneNuts)
+anova(P_lm)
+P_lm_means = emmeans(object = P_lm,
+                       specs = ~ Microsite) 
+P_lm_means_cld <- cld(object = P_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alPa = 0.05)
+P_lm_means_cld
+
+#Fe
+mean(JuneNuts$Fe)
+#Microsite
+Fe_lm = lm(Fe~Microsite, data=JuneNuts)
+anova(Fe_lm)
+Fe_lm_means = emmeans(object = Fe_lm,
+                       specs = ~ Microsite) 
+Fe_lm_means_cld <- cld(object = Fe_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alFea = 0.05)
+Fe_lm_means_cld
+
+#Mn
+mean(JuneNuts$Mn)
+#Microsite
+Mn_lm = lm(Mn~Microsite, data=JuneNuts)
+anova(Mn_lm)
+Mn_lm_means = emmeans(object = Mn_lm,
+                       specs = ~ Microsite) 
+Mn_lm_means_cld <- cld(object = Mn_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alMna = 0.05)
+Mn_lm_means_cld
+
+#Cu
+mean(JuneNuts$Cu)
+#Microsite
+Cu_lm = lm(Cu~Microsite, data=JuneNuts)
+anova(Cu_lm)
+Cu_lm_means = emmeans(object = Cu_lm,
+                       specs = ~ Microsite) 
+Cu_lm_means_cld <- cld(object = Cu_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCua = 0.05)
+Cu_lm_means_cld
+
+#Zn
+mean(JuneNuts$Zn)
+#Microsite
+Zn_lm = lm(Zn~Microsite, data=JuneNuts)
+anova(Zn_lm)
+Zn_lm_means = emmeans(object = Zn_lm,
+                       specs = ~ Microsite) 
+Zn_lm_means_cld <- cld(object = Zn_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alZna = 0.05)
+Zn_lm_means_cld
+
+#B
+mean(JuneNuts$B)
+#Microsite
+B_lm = lm(B~Microsite, data=JuneNuts)
+anova(B_lm)
+B_lm_means = emmeans(object = B_lm,
+                       specs = ~ Microsite) 
+B_lm_means_cld <- cld(object = B_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alBa = 0.05)
+B_lm_means_cld
+
+#S
+mean(JuneNuts$S)
+#Microsite
+S_lm = lm(S~Microsite, data=JuneNuts)
+anova(S_lm)
+S_lm_means = emmeans(object = S_lm,
+                       specs = ~ Microsite) 
+S_lm_means_cld <- cld(object = S_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alSa = 0.05)
+S_lm_means_cld
+
+#Pb
+mean(JuneNuts$Pb)
+#Microsite
+Pb_lm = lm(Pb~Microsite, data=JuneNuts)
+anova(Pb_lm)
+Pb_lm_means = emmeans(object = Pb_lm,
+                       specs = ~ Microsite) 
+Pb_lm_means_cld <- cld(object = Pb_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alPba = 0.05)
+Pb_lm_means_cld
+
+#Al
+mean(JuneNuts$Al)
+#Microsite
+Al_lm = lm(Al~Microsite, data=JuneNuts)
+anova(Al_lm)
+Al_lm_means = emmeans(object = Al_lm,
+                       specs = ~ Microsite) 
+Al_lm_means_cld <- cld(object = Al_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alAla = 0.05)
+Al_lm_means_cld
+
+#Cd
+mean(JuneNuts$Cd)
+#Microsite
+Cd_lm = lm(Cd~Microsite, data=JuneNuts)
+anova(Cd_lm)
+Cd_lm_means = emmeans(object = Cd_lm,
+                       specs = ~ Microsite) 
+Cd_lm_means_cld <- cld(object = Cd_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCda = 0.05)
+Cd_lm_means_cld
+```
+
+#Late season nutrients
+```{r}
+#Subset late season
+AugustNuts = subset(Nuts, Month=='AUGUST')
+
+#ANOVAs
+
+#Nitrogen
+#Microsite
+Total_N_lm = lm(Total_N~Microsite, data=AugustNuts)
+anova(Total_N_lm)
+Total_N_lm_means = emmeans(object = Total_N_lm,
+                       specs = ~ Microsite) 
+Total_N_lm_means_cld <- cld(object = Total_N_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alTotal_Na = 0.05)
+Total_N_lm_means_cld
+
+#Ca
+#Microsite
+Ca_lm = lm(Ca~Microsite, data=AugustNuts)
+anova(Ca_lm)
+Ca_lm_means = emmeans(object = Ca_lm,
+                       specs = ~ Microsite) 
+Ca_lm_means_cld <- cld(object = Ca_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCaa = 0.05)
+Ca_lm_means_cld
+
+#Mg
+#Microsite
+Mg_lm = lm(Mg~Microsite, data=AugustNuts)
+anova(Mg_lm)
+Mg_lm_means = emmeans(object = Mg_lm,
+                       specs = ~ Microsite) 
+Mg_lm_means_cld <- cld(object = Mg_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alMga = 0.05)
+Mg_lm_means_cld
+
+#K
+#Microsite
+K_lm = lm(K~Microsite, data=AugustNuts)
+anova(K_lm)
+K_lm_means = emmeans(object = K_lm,
+                       specs = ~ Microsite) 
+K_lm_means_cld <- cld(object = K_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alKa = 0.05)
+K_lm_means_cld
+
+#P
+#Microsite
+P_lm = lm(P~Microsite, data=AugustNuts)
+anova(P_lm)
+P_lm_means = emmeans(object = P_lm,
+                       specs = ~ Microsite) 
+P_lm_means_cld <- cld(object = P_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alPa = 0.05)
+P_lm_means_cld
+
+#Fe
+#Microsite
+Fe_lm = lm(Fe~Microsite, data=AugustNuts)
+anova(Fe_lm)
+Fe_lm_means = emmeans(object = Fe_lm,
+                       specs = ~ Microsite) 
+Fe_lm_means_cld <- cld(object = Fe_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alFea = 0.05)
+Fe_lm_means_cld
+
+#Mn
+#Microsite
+Mn_lm = lm(Mn~Microsite, data=AugustNuts)
+anova(Mn_lm)
+Mn_lm_means = emmeans(object = Mn_lm,
+                       specs = ~ Microsite) 
+Mn_lm_means_cld <- cld(object = Mn_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alMna = 0.05)
+Mn_lm_means_cld
+
+#Cu
+#Microsite
+Cu_lm = lm(Cu~Microsite, data=AugustNuts)
+anova(Cu_lm)
+Cu_lm_means = emmeans(object = Cu_lm,
+                       specs = ~ Microsite) 
+Cu_lm_means_cld <- cld(object = Cu_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCua = 0.05)
+Cu_lm_means_cld
+
+#Zn
+#Microsite
+Zn_lm = lm(Zn~Microsite, data=AugustNuts)
+anova(Zn_lm)
+Zn_lm_means = emmeans(object = Zn_lm,
+                       specs = ~ Microsite) 
+Zn_lm_means_cld <- cld(object = Zn_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alZna = 0.05)
+Zn_lm_means_cld
+
+#B
+#Microsite
+B_lm = lm(B~Microsite, data=AugustNuts)
+anova(B_lm)
+B_lm_means = emmeans(object = B_lm,
+                       specs = ~ Microsite) 
+B_lm_means_cld <- cld(object = B_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alBa = 0.05)
+B_lm_means_cld
+
+#S
+#Microsite
+S_lm = lm(S~Microsite, data=AugustNuts)
+anova(S_lm)
+S_lm_means = emmeans(object = S_lm,
+                       specs = ~ Microsite) 
+S_lm_means_cld <- cld(object = S_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alSa = 0.05)
+S_lm_means_cld
+
+#Pb
+#Microsite
+Pb_lm = lm(Pb~Microsite, data=AugustNuts)
+anova(Pb_lm)
+Pb_lm_means = emmeans(object = Pb_lm,
+                       specs = ~ Microsite) 
+Pb_lm_means_cld <- cld(object = Pb_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alPba = 0.05)
+Pb_lm_means_cld
+
+#Al
+#Microsite
+Al_lm = lm(Al~Microsite, data=AugustNuts)
+anova(Al_lm)
+Al_lm_means = emmeans(object = Al_lm,
+                       specs = ~ Microsite) 
+Al_lm_means_cld <- cld(object = Al_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alAla = 0.05)
+Al_lm_means_cld
+
+#Cd
+#Microsite
+Cd_lm = lm(Cd~Microsite, data=AugustNuts)
+anova(Cd_lm)
+Cd_lm_means = emmeans(object = Cd_lm,
+                       specs = ~ Microsite) 
+Cd_lm_means_cld <- cld(object = Cd_lm_means,
+                       adjust = "Bonferroni",
+                       Letters = letters,
+                       alCda = 0.05)
+Cd_lm_means_cld
+```
+
